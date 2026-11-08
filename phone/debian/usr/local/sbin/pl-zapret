@@ -1,0 +1,2 @@
+#!/bin/sh
+exec /usr/sbin/chroot /proc/1/root /system/bin/sh /data/linux/bin/zapret "$@"

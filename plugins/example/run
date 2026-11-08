@@ -1,0 +1,10 @@
+#!/bin/sh
+case "${1:-hello}" in
+    hello)
+        echo "hello from the example plugin"
+        ;;
+    *)
+        echo "usage: pl example hello"
+        exit 2
+        ;;
+esac

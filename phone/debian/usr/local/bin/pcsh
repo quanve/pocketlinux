@@ -1,0 +1,154 @@
+#!/usr/bin/env python3
+"""pcsh — run commands on the PC connected to the phone-lab bridge.
+
+Usage (inside the Debian chroot):
+    pcsh status
+    pcsh "uname -a"
+    pcsh -t 30 "systemctl --failed"
+    pcsh --bootstrap linux
+    pcsh --bootstrap windows
+
+The bridge listens on 127.0.0.1:4445; the PC connects to the phone on the LAN.
+"""
+import base64
+import json
+import os
+import socket
+import sys
+
+CTL_PORT = int(os.environ.get("PL_PC_CTL_PORT", "4445"))
+CTL = ("127.0.0.1", CTL_PORT)
+SHARE = "/usr/local/share/phone-lab"
+
+
+def request(req, timeout=5.0):
+    try:
+        sock = socket.create_connection(CTL, timeout=timeout)
+    except OSError as exc:
+        return {"ok": False, "error": f"bridge is not running ({exc})"}
+    with sock:
+        sock.settimeout(timeout)
+        sock.sendall((json.dumps(req, ensure_ascii=False) + "\n").encode("utf-8"))
+        data = b""
+        while not data.endswith(b"\n"):
+            chunk = sock.recv(65536)
+            if not chunk:
+                break
+            data += chunk
+    try:
+        return json.loads(data.decode("utf-8"))
+    except Exception as exc:
+        return {"ok": False, "error": f"bad bridge response: {exc}"}
+
+
+def usage():
+    print(__doc__.strip())
+    return 0
+
+
+def cmd_status(_args):
+    resp = request({"op": "status"})
+    if not resp.get("ok"):
+        print("pcsh:", resp.get("error", "bridge error"))
+        return 2
+    pc = resp.get("pc") or {}
+    print(
+        f"bridge:  running v{resp.get('version')}  "
+        f"{resp.get('ip')}:{resp.get('pc_port')}"
+    )
+    if pc.get("connected"):
+        print(
+            f"pc:      {pc.get('os')}  {pc.get('host')}  "
+            f"({pc.get('peer')})"
+        )
+    else:
+        print("pc:      not connected")
+    print(f"token:   {resp.get('token')}")
+    print("bootstrap linux:   pcsh --bootstrap linux")
+    print("bootstrap windows: pcsh --bootstrap windows")
+    return 0
+
+
+def one_liner(kind):
+    resp = request({"op": "status"})
+    if not resp.get("ok"):
+        print("pcsh:", resp.get("error", "bridge error"), file=sys.stderr)
+        return None
+    if kind == "linux":
+        path = os.path.join(SHARE, "linux.sh")
+    elif kind == "windows":
+        path = os.path.join(SHARE, "windows.ps1")
+    else:
+        print("pcsh: unknown bootstrap kind (linux|windows)", file=sys.stderr)
+        return None
+    try:
+        with open(path, encoding="utf-8") as f:
+            body = f.read()
+    except OSError as exc:
+        print(f"pcsh: cannot read {path}: {exc}", file=sys.stderr)
+        return None
+    body = (
+        body.replace("__IP__", str(resp.get("ip", "")))
+        .replace("__PORT__", str(resp.get("pc_port", 4444)))
+        .replace("__TOKEN__", str(resp.get("token", "")))
+    )
+    if kind == "linux":
+        payload = base64.b64encode(body.encode("utf-8")).decode()
+        return f"echo {payload} | base64 -d | bash"
+    payload = base64.b64encode(body.encode("utf-16-le")).decode()
+    return f"powershell -NoP -EncodedCommand {payload}"
+
+
+def cmd_bootstrap(args):
+    kind = args[0] if args else "linux"
+    line = one_liner(kind)
+    if line is None:
+        return 2
+    print(line)
+    return 0
+
+
+def cmd_exec(args):
+    timeout = 60.0
+    if args and args[0] in ("-t", "--timeout"):
+        if len(args) < 2:
+            print("pcsh: -t needs seconds", file=sys.stderr)
+            return 2
+        try:
+            timeout = float(args[1])
+        except ValueError:
+            print("pcsh: bad timeout", file=sys.stderr)
+            return 2
+        args = args[2:]
+    command = " ".join(args)
+    if not command.strip():
+        return usage()
+    resp = request(
+        {"op": "exec", "cmd": command, "timeout": timeout},
+        timeout=timeout + 10,
+    )
+    if not resp.get("ok"):
+        print("pcsh:", resp.get("error", "error"), file=sys.stderr)
+        return 2
+    out = resp.get("out", "")
+    sys.stdout.write(out)
+    if out and not out.endswith("\n"):
+        sys.stdout.write("\n")
+    try:
+        return int(resp.get("rc", 0)) & 0xFF
+    except (TypeError, ValueError):
+        return 0
+
+
+def main(argv):
+    if not argv or argv[0] in ("-h", "--help", "help"):
+        return usage()
+    if argv[0] == "status":
+        return cmd_status(argv[1:])
+    if argv[0] in ("--bootstrap", "bootstrap"):
+        return cmd_bootstrap(argv[1:])
+    return cmd_exec(argv)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

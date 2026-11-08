@@ -1,0 +1,16 @@
+#!/bin/sh
+TARGET="${1:?usage: pcmount [user@]host [port] [remote_path]}"
+PORT="${2:-22}"
+REMOTE="${3:-}"
+if grep -q " /mnt/pc " /proc/mounts; then
+    echo "pc: already mounted at /mnt/pc"
+    exit 0
+fi
+mkdir -p /root/.ssh
+exec /usr/bin/sshfs -p "$PORT" \
+    -o IdentityFile=/root/.ssh/id_ed25519 \
+    -o StrictHostKeyChecking=accept-new \
+    -o UserKnownHostsFile=/root/.ssh/known_hosts \
+    -o allow_other \
+    -o uid=1000 -o gid=1000 -o umask=022 \
+    "$TARGET:$REMOTE" /mnt/pc

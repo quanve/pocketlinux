@@ -1,0 +1,5 @@
+#!/bin/sh
+SCRIPT=/data/linux/bin/usb-share.sh
+[ -f "/proc/1/root$SCRIPT" ] || SCRIPT=/data/local/tmp/usb-share.sh
+[ -f "/proc/1/root$SCRIPT" ] || { echo "share: usb-share.sh not found" >&2; exit 1; }
+exec /usr/sbin/chroot /proc/1/root /system/bin/sh "$SCRIPT" "$@"

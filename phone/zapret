@@ -1,0 +1,20 @@
+#!/system/bin/sh
+CTL=/data/adb/zapret/ctl.sh
+[ -x "$CTL" ] || { echo "zapret: not installed"; exit 1; }
+
+case "${1:-status}" in
+    on)
+        if ip -br addr show tun0 2>/dev/null | grep -qE 'UP|UNKNOWN'; then
+            exec "$CTL" start vpn
+        else
+            exec "$CTL" start direct
+        fi
+        ;;
+    off)    exec "$CTL" stop ;;
+    status) exec "$CTL" status ;;
+    toggle|restart|start|stop|autostart) exec "$CTL" "$@" ;;
+    *)
+        echo "usage: zapret on|off|toggle|status|restart"
+        exit 1
+        ;;
+esac

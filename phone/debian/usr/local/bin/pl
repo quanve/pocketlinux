@@ -1,0 +1,72 @@
+#!/bin/sh
+PLUGDIR=${PL_PLUGIN_DIR:-/usr/local/lib/phone-lab/plugins}
+
+run_plugin() {
+    name=$1
+    shift
+    dir=$PLUGDIR/$name
+    [ -f "$dir/plugin.conf" ] || return 1
+    [ -x "$dir/run" ] || return 1
+    exec "$dir/run" "$@"
+}
+
+list_plugins() {
+    for d in "$PLUGDIR"/*/; do
+        [ -f "$d/plugin.conf" ] || continue
+        NAME=
+        DESCRIPTION=
+        . "$d/plugin.conf"
+        printf '%-12s %s\n' "$NAME" "$DESCRIPTION"
+    done
+}
+
+case "${1:-help}" in
+    status)
+        exec /usr/local/sbin/pl-status
+        ;;
+    zapret)
+        shift
+        exec /usr/local/sbin/pl-zapret "$@"
+        ;;
+    hid)
+        shift
+        exec /usr/local/sbin/pl-usbhid "$@"
+        ;;
+    pcmount)
+        shift
+        exec /usr/local/sbin/pl-pcmount "$@"
+        ;;
+    pcumount)
+        exec /usr/local/sbin/pl-pcumount
+        ;;
+    share)
+        shift
+        exec /usr/local/bin/share "$@"
+        ;;
+    plugins)
+        list_plugins
+        ;;
+    help|"")
+        cat <<'EOS'
+pl - phone-lab control
+  pl status
+  pl zapret on|off|status
+  pl hid "text" [delay]
+  pl pcmount user@host [port] [path]
+  pl pcumount
+  pl share status|local|sync [dir]|export [dir]|import|off
+  pl plugins
+  pl <plugin> [args]
+EOS
+        ;;
+    *)
+        name=$1
+        shift
+        if run_plugin "$name" "$@"; then
+            :
+        else
+            echo "unknown command: $name (try: pl plugins)" >&2
+            exit 2
+        fi
+        ;;
+esac
